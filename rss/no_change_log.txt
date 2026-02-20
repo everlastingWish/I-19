@@ -1,0 +1,4 @@
+1. everything is new
+2. some commands have 2 modes
+3. out of time... but it should work
+4. use `=help` to see whats new!!

@@ -1,0 +1,13 @@
+`um`:    chatbot...
+
+`draw`:  draw something, nya
+
+`help`:  ...this
+
+
+
+`join`:  vc command
+
+`play`:  try `=play ghTv_e1MId0`, it's my favorite music
+
+`leave`: vc command

@@ -3,44 +3,67 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ai_class import ai
+from util import text_mod
 from datetime import datetime, timedelta
-import google.generativeai as genai
+from google import genai
+from google.genai import Client
+from google.genai import types
+
 import requests
 from io import BytesIO
 from PIL import Image
-import random
+
+
+from util.mood_changer import MoodSystem
 
 # global, so only create 1 instance
 class gemini_ai(ai):
-    def __init__(self, personalityMap, api_key, REQUESTS_PER_MINUTE):
-        self.curIndex = 0
-        self.blackListMap ={}
-        self.blackListSize = 0
+    def __init__(self, tempMap, api_key, REQUESTS_PER_MINUTE):
 
         self.minute_req_count = 0
         self.iniCycleTime = datetime.now()       #to know if a minute is passed
         self.history = ""                        # so it wouldn t add the instruction to history everytime
 
-
+        self.prompt_map = tempMap
+        self.mood_obj = MoodSystem()
 
         self.REQUESTS_PER_MINUTE = REQUESTS_PER_MINUTE
-        self.personalityMap = personalityMap
         self.iniTime = datetime.now()
 
         if self.instance !=0:
-            return
-        genai.configure(api_key=api_key)
+            return 
+        self.client = Client(api_key=api_key)
 
-        self.instance = genai.GenerativeModel (
-            model_name = "models/gemini-1.5-flash",
-            generation_config = {
-                "temperature": 0
-            }
+        self.instance = self.client.models.get(
+            model='gemini-2.5-flash'
         )
-        self.curIndex = self.selectPersonality()
 
     #methods ==========================================
-    #
+    def preprocessor(self, user_input) -> tuple[bool, bool, str]:  
+        '''
+        bool (ratelimit or not, do NOT process if true)
+        bool (send to AI if true, send the exact str if false)
+        str (the modified input)
+
+        '''
+        if self.maximumReqGuard() == True:
+            return (True, False, "")
+        
+        HIGH_RISK_KEYWORDS = {
+            "kill myself", "take my life", "suicide", 
+            "die tonight", "don't want to live", "want to hurt myself", 
+            "no reason to live", "no reason for me to live"
+        }
+        
+        # check for direct phrase matches
+        if text_mod.keyword_matcher(HIGH_RISK_KEYWORDS, user_input):         
+            return (False, False, "https://988lifeline.org/")
+        
+        #print(self.mood_obj.get_mood())
+        self.geminiReset(False)
+
+        return (False, True, user_input)
+
     # no sane person would want to download files on their local machine
     def process_attachment(self, attachment = None):
         if attachment:
@@ -56,51 +79,63 @@ class gemini_ai(ai):
             return image
         return -1               # not image/ none automatically return -1
 
-    # amazing
-    def selectPersonality(self)->int:
-        num = len(self.personalityMap) - self.blackListSize
-        if num == 0:
-            self.blackListMap = {}  # clear map
-            self.blackListSize = 0  # clear        
-            num = len(self.personalityMap) #all items
+
+
+    async def processing (self, message, msg_content, attachment=None):
+        # print(msg_content)
+        msg_content = text_mod.splitUserMsg("=um", msg_content)
+        tempImg = self.process_attachment(attachment)
+
+        payload = []
+        payload.append(f"{self.prompt_map[self.mood_obj.get_mood_level()]}\n\n========history========\n{self.history}\n{message.author.display_name}: {msg_content}")
+        #print(payload)
+        #print("\n\n if the output is weird, make sure to change processing prompt")
+        if tempImg != -1:    #if it is a real image
+            payload.append(tempImg)
+
+        self.updateHistoryPrompt(message.author.display_name, msg_content, tempImg)
+
+        return await self.post_processing(payload, message)
+
+    async def post_processing (self, payload, message) -> str:
+        self.mood_obj.pre_input_update(datetime.now(), message.author.id)
+        async with message.channel.typing():
+            for i in range(5):
+                response_obj = await self.client.aio.models.generate_content(
+                                    model='gemini-2.5-flash',contents=payload,     
+                                    config=types.GenerateContentConfig(
+                                        temperature=0.1)
+                                        )
+                response_text = response_obj.text
+
+                if (response_text is not None) and ("google" not in response_text.lower()):
+                    break
+                
+            # if its still there...
+            if "google" in response_text.lower():
+                response = "..."
+            else:
+                response = response_text
             
-        randIndex = random.randint(0, num-1)
-        randIndex2 = randIndex                      #duplicate
-        print(f"total personality map size: {len(self.personalityMap)}")
-        print(f"random Index: {randIndex}")
-        print(f"black list size: {self.blackListSize}")
-              
-        if randIndex in self.blackListMap:          #if blacklisted
-            print(f"edited!! key: {randIndex} value:{self.blackListMap[randIndex]}")
-            randIndex = self.blackListMap[randIndex]    #get the mapped instead
-        
-        if randIndex2 != num-1:          #if it is not end item
-            self.blackListMap[randIndex2]= num-1    #try map to the removed item
+            #clearing trash
+            dict = {"I-19: ": "", "i-19: ": "", "^": "\'"}
+            response = text_mod.phrase_swap(response, dict)
 
-        if (num - 1 in self.blackListMap) and (self.blackListMap[num-1] in self.blackListMap):   #if the removed item is blacklisted
-            self.blackListMap[randIndex2] = self.blackListMap[num-1] # go through the map, map again
-            del self.blackListMap[num-1]                                #merged
+            self.history += f"\nI-19: {response}\n"
 
-        self.blackListSize+=1                   #increase
-        print(f"updated blackListSize: {self.blackListSize}")
-        print(f"Index: {randIndex}, or {self.personalityMap[randIndex].name} is selected")
-        return randIndex
-    
-    # this func can change config
-    def resetREAL(self):
-        self.iniTime = datetime.now()
-        self.curIndex = self.selectPersonality()    #change personality per reset
-        
-        personalityOBJ = self.personalityMap[self.curIndex] # temp var
-        self.instance.generation_config = {"temperature": personalityOBJ.temperature,
-                                           "max_output_tokens": personalityOBJ.maxToken
-        }
+            self.update_msgCount_and_time()
+            self.mood_obj.post_output_update(response)
+
+            # print(self.mood_obj.get_mood())
+
+            return response
+
         
     # true = no response, false = can have response
     def maximumReqGuard(self) -> bool:
         timeDiff = datetime.now() - self.iniCycleTime
         if (timeDiff.seconds < 60):
-            if (self.minute_req_count >= 15):
+            if (self.minute_req_count >= 30):
                 return True
         else:
             self.iniCycleTime = datetime.now()  #reset cycle to 60 sec
@@ -109,13 +144,12 @@ class gemini_ai(ai):
         return False
 
     def geminiReset(self, condition):
-        if (self.resetCond(timedelta(days=2), timedelta(days=1), 15, condition)):
+        if (self.resetCond(timedelta(days=2), timedelta(days=1), 80, condition)):
             print("clearing gemini chat history (reset)")
             self.history = ""
-            self.resetREAL()              # what kind of personality will it be next
+            self.iniTime = datetime.now()
+            self.mood_obj.reset_mood()
 
-    def splitUserMsg(self, message):
-        return message.content.split("=uh ",1)[1] if len(message.content) > 4 else " "
     
     def updateHistoryPrompt (self, authorName, messageContent, imageMaybe):
         self.history += f"{authorName}: {messageContent} "
@@ -123,142 +157,6 @@ class gemini_ai(ai):
             self.history+= "[image]"        #yea, not getting a ai vision service for this
         pass
     
-    async def split_and_send_message(self, channel, message, chunk_size=2000):
-
-        # Initialize variables
-        messages_sent = []
-    
-        # If message is shorter than chunk_size, send it directly
-        if len(message) <= chunk_size:
-            sent_message = await channel.send(message)
-            return [sent_message]
-    
-        # Split message into chunks
-        chunks = []
-        for i in range(0, len(message), chunk_size):
-            # Get chunk of appropriate size
-            chunk = message[i:i + chunk_size]
-        
-            # If we're splitting mid-word and this isn't the last chunk,
-            # try to split at the last space
-            if i + chunk_size < len(message) and message[i + chunk_size].isalnum():
-                last_space = chunk.rfind(' ')
-                if last_space != -1:  # If we found a space
-                    # Move the partial word to the next chunk
-                    chunk = chunk[:last_space]
-                    # Adjust the starting point of the next chunk
-                    i = i + last_space - chunk_size
-        
-            chunks.append(chunk.strip())
-    
-    # Send each chunk
-        for index, chunk in enumerate(chunks):
-            # Add a continuation indicator
-            if len(chunks) > 1:
-                chunk = f"[{index + 1}/{len(chunks)}]\n{chunk}"
-        
-            # Send the chunk and store the message object
-            sent_message = await channel.send(chunk)
-            messages_sent.append(sent_message)
-        
-            # Optional: Add a small delay to prevent rate limiting
-            # await asyncio.sleep(0.5)
-    
-        return messages_sent
-    async def query(self, message, attachment=None):
-        if (self.maximumReqGuard()):    #this checks for minute cycles
-            return
-        self.geminiReset(False)             #this checks for overall
-        
-        personalityOBJ = self.personalityMap[self.curIndex] # temp var
-
-        tempImg = self.process_attachment(attachment)
-        messageContant = self.splitUserMsg(message)
-
-        payload = []
-        payload.append(f"{personalityOBJ.context}\n\n===history===\n{self.history}===history end===\n\n{message.author.display_name}:{messageContant}")
-        if tempImg != -1:    #if it is a real image
-            payload.append(tempImg)
-        
-        self.updateHistoryPrompt(message.author.display_name, messageContant, tempImg)
-
-        # response history need to be updated in query
-        self.history = await personalityOBJ.query(self.instance.start_chat(), 
-                                 message.author.display_name,
-                                 message.channel,
-                                 self.history,
-                                 payload
-                                 )
-
-        self.update_msgCount_and_time()
-        return
-
     # debug methods
     def printHistory(self):
         print(self.history)
-
-    async def squery(self, message, attachment=None):
-        if (self.maximumReqGuard()):    #this checks for minute cycles
-            return
-        self.geminiReset(False)             #this checks for overall
-
-        self.instance.generation_config = {"temperature": 0.0,              #panic
-                                           "max_output_tokens": 65536
-        }
-        tempImg = self.process_attachment(attachment)
-        messageContant = message.content.replace("=s","")
-
-        payload = []
-        payload.append(f"{self.history}\n{message.author.display_name}:{messageContant}")
-        if tempImg != -1:    #if it is a real image
-            payload.append(tempImg)
-        
-        self.updateHistoryPrompt(message.author.display_name, messageContant, tempImg)
-
-        # response history need to be updated here
-        response = await self.instance.start_chat().send_message_async(payload)
-        response = response.text
-        self.history += f"I-19: {response}"
-        #await message.channel.send(response)
-        await self.split_and_send_message(message.channel,response,1900)
-
-        self.update_msgCount_and_time()
-        return
-    
-    async def ssquery(self, message, attachment=None):
-        if (self.maximumReqGuard()):    #this checks for minute cycles
-            return
-        self.geminiReset(False)             #this checks for overall
-
-        self.instance = genai.GenerativeModel (
-            model_name = "models/gemini-1.5-pro",
-            generation_config = {
-                "temperature": 0
-            }
-        )
-        tempImg = self.process_attachment(attachment)
-        messageContant = message.content.replace("=s","")
-
-        payload = []
-        payload.append(f"{self.history}\n{message.author.display_name}:{messageContant}")
-        if tempImg != -1:    #if it is a real image
-            payload.append(tempImg)
-        
-        self.updateHistoryPrompt(message.author.display_name, messageContant, tempImg)
-
-        # response history need to be updated here
-        response = await self.instance.start_chat().send_message_async(payload)
-        response = response.text
-        self.history += f"I-19: {response}"
-        #await message.channel.send(response)
-        await self.split_and_send_message(message.channel,response,1900)
-
-        self.update_msgCount_and_time()
-
-        self.instance = genai.GenerativeModel (
-            model_name = "models/gemini-1.5-flash",
-            generation_config = {
-                "temperature": 0
-            }
-        )
-        return

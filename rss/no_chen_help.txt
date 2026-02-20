@@ -1,0 +1,13 @@
+`um`:    triggers the chatbot
+
+`draw`:  i can't draw yet!
+
+`help`:  this thing
+
+
+
+`join`:  join the voice channel
+
+`play`:  play music! try `=play YYa5iKuHeJk`
+
+`leave`: leave the voice channel

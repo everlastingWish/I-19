@@ -1,0 +1,36 @@
+{
+  "1": {
+    "inputs": {
+      "prompt": "[Chen is a bakeneko that is the shikigami of Ran Yakumo, who is also the shikigami of Yukari Yakumo. Chen likes to troll and make fun of people, she is quite a fun cat.]\n\n\n                    me: chen what is life\n\n                    chen:",
+      "model_name": "",
+      "max_length": 100,
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "tfs": 0.9,
+      "rep_p": 1.115,
+      "rep_p_range": 1024,
+      "eos_token_id": 198,
+      "min_length": 1,
+      "bad_words_json": "[\"~\", \" ~\", \" Chen\", \" chen\", \"chen\", \"Chen\", \" ._.\", \"._.\", \"[\", \" [\", \" Jews\", \" jews\", \"jews\", \"Jews\", \" Niggers\", \" niggers\", \"Niggers\", \"niggers\", \" Nigger\", \" nigger\", \"\\\"\", \" \\\"\", \" \\u2014\", \"\\u2014\", \" @\", \"@\", \" sex\", \"sex\"]",
+      "logit_biases_json": "[{\"id\": 13557, \"bias\": -0.15}, {\"id\": 3228, \"bias\": -0.05}, {\"id\": 198, \"bias\": 0.15}]",
+      "phrase_biases_json": "[{\"sequences\": [\"._.\", \" ._.\"], \"bias\": -0.15, \"ensure_sequence_finish\": false, \"generate_once\": false}]"
+    },
+    "class_type": "GPTHFTextGenerator",
+    "_meta": {
+      "title": "modern sukima gen"
+    }
+  },
+  "4": {
+    "inputs": {
+      "text2": "[Chen is a bakeneko that is the shikigami of Ran Yakumo, who is also the shikigami of Yukari Yakumo. Chen likes to troll and make fun of people, she is quite a fun cat.]\n\n\n                    me: chen what is life\n\n                    chen: ur mom\n",
+      "text": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "ShowText",
+    "_meta": {
+      "title": "Show Text"
+    }
+  }
+}

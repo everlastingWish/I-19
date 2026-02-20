@@ -1,5 +1,7 @@
-*.env
-*.json
-*test.py*
-*nya.txt*
 *pycache*
+test*
+venv
+*.db
+*.jar
+
+no_rss
